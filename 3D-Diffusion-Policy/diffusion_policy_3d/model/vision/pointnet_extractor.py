@@ -3,9 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import copy
+import einops
 
 from typing import Optional, Dict, Tuple, Union, List, Type
 from termcolor import cprint
+from third_party.diffuser_actor.layers import FFWRelativeCrossAttentionModule
 
 
 def create_mlp(
@@ -279,3 +281,43 @@ class DP3Encoder(nn.Module):
 
     def output_shape(self):
         return self.n_output_channels
+
+
+class InstructionDP3Encoder(DP3Encoder):
+    def __init__(self, 
+                 observation_space: Dict, 
+                 img_crop_shape=None,
+                 out_channel=256,
+                 state_mlp_size=(64, 64), state_mlp_activation_fn=nn.ReLU,
+                 pointcloud_encoder_cfg=None,
+                 use_pc_color=False,
+                 pointnet_type='pointnet',
+                 ):
+        super().__init__(
+            observation_space=observation_space,
+            img_crop_shape=img_crop_shape,
+            out_channel=out_channel,
+            state_mlp_size=state_mlp_size,
+            state_mlp_activation_fn=state_mlp_activation_fn,
+            pointcloud_encoder_cfg=pointcloud_encoder_cfg,
+            use_pc_color=use_pc_color,
+            pointnet_type=pointnet_type,
+        )
+        self.lang_cond_encoders = FFWRelativeCrossAttentionModule(
+            embedding_dim=self.n_output_channels,
+            num_attn_heads=8,
+            num_layers=3,
+            use_adaln=False
+        )
+        self.lang_proj = nn.Linear(512, self.n_output_channels)
+
+    def forward(self, observations: Dict, nobs: int) -> torch.Tensor:
+        final_feat = super().forward(observations)
+        final_feat = einops.rearrange(final_feat, "(b nobs) c -> b nobs c", nobs=nobs)
+        final_feat = einops.rearrange(final_feat, "b nobs c -> nobs b c")
+        instr = einops.rearrange(observations['instr'], "b n c -> n b c")
+        instr = self.lang_proj(instr)
+        final_feat = self.lang_cond_encoders(final_feat, instr)[-1]
+        final_feat = einops.rearrange(final_feat, "nobs b c -> (b nobs) c")
+
+        return final_feat
