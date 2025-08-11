@@ -44,3 +44,6 @@ personal_TASK.md
 easytrain.sh
 nohup.out
 output/
+
+3D-Diffusion-Policy/eval_logs/
+3D-Diffusion-Policy/data/
