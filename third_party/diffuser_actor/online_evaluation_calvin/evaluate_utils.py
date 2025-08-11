@@ -12,8 +12,8 @@ import torch.nn.functional as F
 import pybullet
 import hydra
 
-import calvin_env
-from calvin_env.envs.play_table_env import PlayTableSimEnv
+import calvin.calvin_env.calvin_env as calvin_env
+from calvin.calvin_env.calvin_env.envs.play_table_env import PlayTableSimEnv
 import third_party.diffuser_actor.pytorch3d_transforms as pytorch3d_transforms
 from third_party.diffuser_actor.utils_with_calvin import (
     deproject,

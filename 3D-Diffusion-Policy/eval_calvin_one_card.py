@@ -42,8 +42,8 @@ from train import TrainDP3Workspace
 
 logger = logging.getLogger(__name__)
 
-EP_LEN = 360  # 120 would be better
-NUM_SEQUENCES = 1000
+EP_LEN = 120  # 120 would be better
+NUM_SEQUENCES = 50
 
 
 # class Arguments(tap.Tap):
@@ -75,12 +75,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate Policy")
 
     # Online environment
-    parser.add_argument("--calvin_dataset_path", type=Path, default="/data/sea_disk0/zhangxx/3DDA_DP3/calvin/dataset/calvin_debug_dataset",
+    parser.add_argument("--calvin_dataset_path", type=Path, default="/data/sea_disk0/zhangxx/calvin/dataset/task_ABC_D",
                        help="Path to CALVIN dataset")
     parser.add_argument("--calvin_model_path", type=Path, default="/data/sea_disk0/zhangxx/3DDA_DP3/calvin/calvin_models",
                        help="Path to CALVIN models")
-    parser.add_argument("--calvin_demo_tasks", type=Optional[List[str]], default=None,
-                       help="List of demo tasks")
     parser.add_argument("--device", type=str, default="cuda",
                        help="Device to use (cuda/cpu)")
     parser.add_argument("--text_encoder", type=str, default="clip",
@@ -101,7 +99,7 @@ def parse_args():
                        help="Config file name")
 
     # Logging
-    parser.add_argument("--base_log_dir", type=Path, default=Path(__file__).parent / "eval_logs" / "calvin",
+    parser.add_argument("--base_log_dir", type=Path, default=Path(__file__).parent / "eval_logs" / "ABC_D_closeloop_3000steps_160image",
                        help="Base log directory")
     parser.add_argument("--relative_action", type=int, default=1,
                        help="Use relative actions (1/0)")
@@ -113,7 +111,7 @@ def parse_args():
     args = parser.parse_args()
     
     # Handle local_rank for DDP
-    args.local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    # args.local_rank = int(os.environ.get("LOCAL_RANK", 0))
     
     return args
 
@@ -151,6 +149,11 @@ def evaluate_policy(model, env, conf_dir, eval_log_dir=None, save_video=False,
 
     eval_log_dir = get_log_dir(eval_log_dir)
 
+    # Create instructions.txt file to store task instructions separately from results
+    instructions_txt_path = eval_log_dir / "instructions.txt"
+    with open(instructions_txt_path, "w") as f:
+        f.write("Sequence task instructions:\n\n")
+
     eval_sequences = get_sequences(NUM_SEQUENCES)
 
     results, tested_sequence_indices = collect_results(eval_log_dir)
@@ -160,6 +163,15 @@ def evaluate_policy(model, env, conf_dir, eval_log_dir=None, save_video=False,
             continue
         if seq_ind in tested_sequence_indices:
             continue
+        
+        # Write instructions to instructions.txt
+        with open(instructions_txt_path, "a") as f:
+            f.write(f"Sequence {seq_ind} tasks:\n")
+            for task_idx, subtask in enumerate(eval_sequence):
+                lang_annotation = val_annotations[subtask][0]
+                f.write(f"  Task {task_idx+1}: {lang_annotation}\n")
+            f.write("\n")
+
         result, videos = evaluate_sequence(
             env, model, task_oracle, initial_state,
             eval_sequence, val_annotations, save_video
@@ -190,8 +202,10 @@ def evaluate_policy(model, env, conf_dir, eval_log_dir=None, save_video=False,
                     video[img_ind] = img
                 clip.extend(video)
             clip = moviepy.video.io.ImageSequenceClip.ImageSequenceClip(clip, fps=30)
-            clip.write_videofile(f"calvin_seq{seq_ind}.mp4")
-
+            # clip.write_videofile(f"calvin_seq{seq_ind}.mp4")
+            # 指定输出路径
+            output_path = eval_log_dir / f"calvin_seq{seq_ind}.mp4"
+            clip.write_videofile(str(output_path))
 
     return results
 
@@ -250,44 +264,47 @@ def rollout(env, model, task_oracle, subtask, lang_annotation):
         Success/Fail: a boolean indicates whether the task is completed
         video: a list of images that shows the trajectory of the robot
     """
-    video = [] # show video for debugging
-    obs = env.get_obs()
+    with torch.no_grad(), torch.inference_mode():
+        video = [] # show video for debugging
+        obs = env.get_obs()
 
-    model.reset()
-    start_info = env.get_info()
+        model.reset()
+        start_info = env.get_info()
 
-    print('------------------------------')
-    print(f'task: {lang_annotation}')
-    video.append(obs["rgb_obs"]["rgb_static"])
+        print('------------------------------')
+        print(f'task: {lang_annotation}')
+        video.append(obs["rgb_obs"]["rgb_static"])
 
-    pbar = tqdm(range(EP_LEN))
-    for step in pbar:
-        obs = prepare_visual_states(obs, env, model.policy_cfg.n_obs_steps)
-        obs = prepare_proprio_states(obs, env, model.policy_cfg.n_obs_steps)
-        lang_embeddings = model.encode_instruction(lang_annotation, model.args.device)
-        trajectory = model.step(obs, lang_embeddings)
-        for act_ind in range(min(trajectory.shape[1], model.policy_cfg.n_action_steps)):
-            # calvin_env executes absolute action in the format of:
-            # [[x, y, z], [euler_x, euler_y, euler_z], [open]]
-            curr_action = [
-                trajectory[0, act_ind, :3],
-                trajectory[0, act_ind, 3:6],
-                trajectory[0, act_ind, [6]]
-            ]
-            pbar.set_description(f"step: {step}")
-            curr_proprio = obs['proprio']
-            obs, _, _, current_info = env.step(curr_action)
-            obs['proprio'] = curr_proprio
+        pbar = tqdm(range(EP_LEN))
+        # from torch.amp import autocast
+        for step in pbar:
+            # with autocast(device_type='cuda', dtype=torch.float16):  # 新版 API
+            obs = prepare_visual_states(obs, env, model.policy_cfg.n_obs_steps)
+            obs = prepare_proprio_states(obs, env, model.policy_cfg.n_obs_steps)
+            lang_embeddings = model.encode_instruction(lang_annotation, model.args.device)
+            trajectory = model.step(obs, lang_embeddings)
+            for act_ind in range(min(trajectory.shape[1], model.policy_cfg.n_action_steps)):
+                # calvin_env executes absolute action in the format of:
+                # [[x, y, z], [euler_x, euler_y, euler_z], [open]]
+                curr_action = [
+                    trajectory[0, act_ind, :3],
+                    trajectory[0, act_ind, 3:6],
+                    trajectory[0, act_ind, [6]]
+                ]
+                pbar.set_description(f"step: {step}")
+                curr_proprio = obs['proprio']
+                obs, _, _, current_info = env.step(curr_action)
+                obs['proprio'] = curr_proprio
 
-            # check if current step solves a task
-            current_task_info = task_oracle.get_task_info_for_set(
-                start_info, current_info, {subtask}
-            )
+                # check if current step solves a task
+                current_task_info = task_oracle.get_task_info_for_set(
+                    start_info, current_info, {subtask}
+                )
 
-            video.append(obs["rgb_obs"]["rgb_static"])
+                video.append(obs["rgb_obs"]["rgb_static"])
 
-            if len(current_task_info) > 0:
-                return True, video
+                if len(current_task_info) > 0:
+                    return True, video
 
     return False, video
 
@@ -308,7 +325,6 @@ def main(args):
     if args.calvin_gripper_loc_bounds is not None:
         args.calvin_gripper_loc_bounds = get_calvin_gripper_loc_bounds(args)
 
-    # set random seeds
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -322,24 +338,32 @@ def main(args):
         model = create_model(args, workspace.model, workspace.cfg)
 
     sequence_indices = [
-        i for i in range(args.local_rank, NUM_SEQUENCES, int(os.environ["WORLD_SIZE"]))
+        i for i in range(0, NUM_SEQUENCES)
     ]
 
+    # 初始化环境（单卡）
     env = make_env(args.calvin_dataset_path, show_gui=False)
-    evaluate_policy(model, env,
-                    conf_dir=Path(args.calvin_model_path) / "conf",
-                    eval_log_dir=args.base_log_dir,
-                    sequence_indices=sequence_indices,
-                    save_video=args.save_video)
-
-    results, sequence_inds = collect_results(args.base_log_dir)
-    str_results = (
-        " ".join([f"{i + 1}/5 : {v * 100:.1f}% |"
-        for i, v in enumerate(count_success(results))]) + "|"
+    
+    # 评估策略
+    evaluate_policy(
+        model, 
+        env,
+        conf_dir=Path(args.calvin_model_path) / "conf",
+        eval_log_dir=args.base_log_dir,
+        sequence_indices=sequence_indices,
+        save_video=args.save_video
     )
-    print(f'Load {len(results)}/1000 episodes...')
-    print(str_results + "\n")
 
+    # 打印结果
+    results, _ = collect_results(args.base_log_dir)
+    str_results = " ".join([
+        f"{i + 1}/5 : {v * 100:.1f}% |" 
+        for i, v in enumerate(count_success(results))
+    ]) + "|"
+    print(f'Evaluated {len(results)}/{NUM_SEQUENCES} episodes.')
+    print(str_results)
+
+    # 清理资源
     del env
     gc.collect()
 
@@ -414,11 +438,11 @@ if __name__ == "__main__":
     # args.local_rank = int(os.environ["LOCAL_RANK"])
     args = parse_args()
 
-    # DDP initialization
-    torch.cuda.set_device(args.local_rank)
-    torch.distributed.init_process_group(backend='nccl', init_method='env://')
-    torch.backends.cudnn.enabled = True
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cudnn.deterministic = True
+    # # DDP initialization
+    # torch.cuda.set_device(args.local_rank)
+    # torch.distributed.init_process_group(backend='nccl', init_method='env://')
+    # torch.backends.cudnn.enabled = True
+    # torch.backends.cudnn.benchmark = True
+    # torch.backends.cudnn.deterministic = True
 
     main(args)

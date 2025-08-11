@@ -6,16 +6,58 @@ import torch
 import torch.nn as nn
 import numpy as np
 import einops
-import dgl.geometry as dgl_geo
+# import dgl.geometry as dgl_geo
 
 # This is for using the locally installed repo clone when using slurm
-from calvin_agent.models.calvin_base_model import CalvinBaseModel
-from diffusion_policy_3d.common.pytorch_util import dict_apply
+from calvin.calvin_models.calvin_agent.models.calvin_base_model import CalvinBaseModel
+# from diffusion_policy_3d.common.pytorch_util import dict_apply
 from third_party.diffuser_actor.online_evaluation_calvin.evaluate_utils import convert_action
 from third_party.diffuser_actor.utils_with_calvin import relative_to_absolute
 
+# from kaolin.ops.pointcloud import farthest_point_sampling
 
 logger = logging.getLogger(__name__)
+
+def farthest_point_sampler(points: torch.Tensor, num_samples: int, start_idx: int = 0) -> torch.Tensor:
+    """
+    Farthest Point Sampling (FPS) for point clouds.
+    
+    Args:
+        points: (B, N, 3) tensor of point cloud coordinates.
+        num_samples: Number of points to sample.
+        start_idx: Index of the first point to start sampling (default=0).
+    
+    Returns:
+        sampled_indices: (B, num_samples) tensor of sampled point indices.
+    """
+    device = points.device
+    B, N, _ = points.shape
+    
+    # Initialize output and distance matrix
+    sampled_indices = torch.zeros((B, num_samples), dtype=torch.long, device=device)
+    distances = torch.full((B, N), float('inf'), device=device)
+    
+    # Start with the first point
+    sampled_indices[:, 0] = start_idx
+    
+    # # Compute pairwise distances (squared L2 norm)
+    # points_sq = torch.sum(points ** 2, dim=-1, keepdim=True)  # (B, N, 1)
+    # pairwise_distances = points_sq + points_sq.transpose(1, 2) - 2 * torch.bmm(points, points.transpose(1, 2))  # (B, N, N)
+    
+    for i in range(1, num_samples):
+        last_selected = sampled_indices[:, i - 1]  # (B,)
+        last_selected_points = points[torch.arange(B), last_selected]  # (B, 3)
+        
+        # Compute distances to the last selected point
+        dist_to_last = torch.sum((points - last_selected_points.unsqueeze(1)) ** 2, dim=-1)  # (B, N)
+        
+        # Update the minimum distances
+        distances = torch.min(distances, dist_to_last)
+        
+        # Select the farthest point
+        sampled_indices[:, i] = torch.argmax(distances, dim=-1)
+    
+    return sampled_indices
 
 
 def create_model(args, policy, policy_cfg):
@@ -140,9 +182,15 @@ class DiffusionModel(CalvinBaseModel):
         pcds = einops.rearrange(pcds, "T N H W C -> (T N) (H W) C")
 
         # Run FPS
-        sampled_inds = dgl_geo.farthest_point_sampler(
-            pcds.cuda().to(torch.float64), self.args.fps_num_pts, 0
-        ).long()
+        # sampled_inds = dgl_geo.farthest_point_sampler(
+        #     pcds.cuda().to(torch.float64), self.args.fps_num_pts, 0
+        # ).long()
+        sampled_inds = farthest_point_sampler(
+            pcds.float(),  # (B, N, 3) tensor
+            self.args.fps_num_pts,
+            0  # start_idx
+        )
+        # sampled_inds = farthest_point_sampling(pcds.float(), self.args.fps_num_pts)
         pcds = torch.gather(
             pcds, 1, sampled_inds.unsqueeze(-1).expand(-1, -1, 3)
         )
@@ -167,7 +215,10 @@ class DiffusionModel(CalvinBaseModel):
 
         # run policy
         with torch.no_grad():
+            # Original
             trajectory = self.policy.predict_action(obs_dict)['action']
+            # trajectory_length = 16
+            # trajectory = self.policy.compute_trajectory(obs_dict, trajectory_length)['action']
 
         # Convert quaternion to Euler angles
         trajectory = convert_action(trajectory)

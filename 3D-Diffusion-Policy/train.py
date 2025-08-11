@@ -87,7 +87,11 @@ class TrainDP3Workspace:
             RUN_CKPT = True
             verbose = False
         
+        RUN_ROLLOUT = False # No visualization.(training)
         RUN_VALIDATION = False # reduce time cost
+
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+        torch.cuda.empty_cache()
         
         # resume training
         if cfg.training.resume:
@@ -132,11 +136,12 @@ class TrainDP3Workspace:
                 cfg.ema,
                 model=self.ema_model)
 
-        # configure env
-        env_runner: BaseRunner
-        env_runner = hydra.utils.instantiate(
-            cfg.task.env_runner,
-            output_dir=self.output_dir)
+        env_runner = None
+        # # configure env
+        # env_runner: BaseRunner
+        # env_runner = hydra.utils.instantiate(
+        #     cfg.task.env_runner,
+        #     output_dir=self.output_dir)
 
         if env_runner is not None:
             assert isinstance(env_runner, BaseRunner)

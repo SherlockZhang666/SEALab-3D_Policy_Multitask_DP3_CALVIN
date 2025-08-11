@@ -15,9 +15,17 @@ from diffusion_policy_3d.dataset.diffuser_actor.dataset_calvin import CalvinData
 
 
 # very hacky, use absolute path
-INSTRUCTION = "/home/tsungwek/repos/3D-Diffusion-Policy/instructions/calvin_task_ABC_D/"
-TRAIN_SET_DIR = "/scratch/packaged_ABC_D/training"
-VAL_SET_DIR = "/scratch/packaged_ABC_D/validation"
+
+# INSTRUCTION = "/home/tsungwek/repos/3D-Diffusion-Policy/instructions/calvin_task_ABC_D/"
+# TRAIN_SET_DIR = "/scratch/packaged_ABC_D/training"
+# VAL_SET_DIR = "/scratch/packaged_ABC_D/validation"
+
+INSTRUCTION = "/data/sea_disk0/zhangxx/3d_diffuser_actor/data/calvin/task_ABC_D_instructions"
+TRAIN_SET_DIR = "/data/sea_disk0/zhangxx/3d_diffuser_actor/data/calvin/packaged_ABC_D_closeloop/training"
+VAL_SET_DIR = "/data/sea_disk0/zhangxx/3d_diffuser_actor/data/calvin/packaged_ABC_D_closeloop/validation"
+# INSTRUCTION = "/data/sea_disk0/zhangxx/3d_diffuser_actor/data/calvin/calvin_debug_dataset_instructions"
+# TRAIN_SET_DIR = "/data/sea_disk0/zhangxx/3d_diffuser_actor/data/calvin/packaged_calvin_debug_dataset_closeloop/training"
+# VAL_SET_DIR = "/data/sea_disk0/zhangxx/3d_diffuser_actor/data/calvin/packaged_calvin_debug_dataset_closeloop/validation"
 HORIZON = 4
 NOBS_STEP = 2
 MAX_EPISODE_PER_TASK = -1
@@ -105,15 +113,29 @@ class CalvinDataset(BaseDataset):
         _nobs_step = self.backend_dataset._nobs_step
 
         action, agent_pos, point_cloud = [], [], []
-        for i in range(len(self.backend_dataset)):
-            for _ in range(15):
-                ep = self.backend_dataset[i]
-                action.append(ep['action'])  # (horizon, D_action)
-                agent_pos.append(ep['agent_pos'])  # (nobs_step, D_pos)
-                point_cloud.append(ep['pcds'])  # (nobs_step, npts, 3)
+        # for i in range(len(self.backend_dataset)):
+        #     for _ in range(15):
+        #         ep = self.backend_dataset[i]
+        #         action.append(ep['action'])  # (horizon, D_action)
+        #         agent_pos.append(ep['agent_pos'])  # (nobs_step, D_pos)
+        #         point_cloud.append(ep['pcds'])  # (nobs_step, npts, 3)
+        # 减少重复采样，只采样必要的数据量
+        sample_size = min(len(self.backend_dataset), 1000)  # 限制采样数量
+        sample_indices = np.random.choice(len(self.backend_dataset), sample_size, replace=False)
+
+        for i in sample_indices:
+            ep = self.backend_dataset[i]
+            if ep is not None:
+                action.append(ep['action'])
+                agent_pos.append(ep['agent_pos'])
+                point_cloud.append(ep['pcds'])
         action = torch.cat(action, dim=0)
         agent_pos = torch.cat(agent_pos, dim=0)
         point_cloud = torch.cat(point_cloud, dim=0)
+
+        action = action.repeat(1, _horizon, 1) # (sample_size, horizon, D_action)
+        agent_pos = agent_pos.repeat(1, _nobs_step, 1) # (sample_size, nobs_step, D_pos)
+        point_cloud = point_cloud.repeat(1, _nobs_step, 1, 1) # (sample_size, nobs_step, npts, 3)
 
         data = {
             'action': action,

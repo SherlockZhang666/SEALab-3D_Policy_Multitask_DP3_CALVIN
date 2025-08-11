@@ -98,11 +98,14 @@ class CalvinDataset(RLBenchDataset):
     def __getitem__(self, episode_id):
         """
         the episode item: [
-            [frame_ids],  # we use chunk and max_episode_length to index it
-            [obs_tensors],  # wrt frame_ids, (nframe, n_cam, 2, 3, 256, 256)
+            [frame_ids], # we use chunk and max_episode_length to index it
+            [obs_tensors],  # wrt frame_ids, (n_cam, 2, 3, 256, 256)
                 obs_tensors[i][:, 0] is RGB, obs_tensors[i][:, 1] is XYZ
-            [gripper_tensors],  # wrt frame_ids, (nframe, 8)
+            [action_tensors],  # wrt frame_ids, (1, 8)
             [camera_dicts],
+            [gripper_tensors],  # wrt frame_ids, (1, 8) # gripper相机视角下的agent_pos,后续用relative action算即可
+            [trajectories]  # wrt frame_ids, (N_i, 8)
+            [annotation_ind] # wrt frame_ids, (1,)
         ]
         """
         episode_id %= self._num_episodes
@@ -118,6 +121,15 @@ class CalvinDataset(RLBenchDataset):
         total_frame_ids = (total_frame_ids[:1] * self._pad_before +
                            total_frame_ids +
                            total_frame_ids[-1:] * self._pad_after)
+        
+        # 若 total_frame_ids 的长度还不够 max_episode_length，则repeate最后一个元素至max_episode_length
+        if len(total_frame_ids) <= self._max_episode_length:
+            total_frame_ids = (
+                total_frame_ids[:1] * self._pad_before +
+                total_frame_ids +
+                total_frame_ids[-1:] * (self._max_episode_length + 1 - len(total_frame_ids))
+            )
+
         chunk = random.randint(
             0, len(total_frame_ids) - self._max_episode_length - 1
         )
@@ -141,23 +153,58 @@ class CalvinDataset(RLBenchDataset):
             states = states[:, index]
 
         # Split RGB and XYZ
-        rgbs = states[:, :, 0]
-        pcds = states[:, :, 1]
+        # rgbs = states[:, :, 0]
+        # pcds = states[:, :, 1]
+        rgbs = states[:, :, 0, :, 20:180, 20:180]
+        pcds = states[:, :, 1, :, 20:180, 20:180]
+
         rgbs = self._unnormalize_rgb(rgbs)
 
         # Sample one instruction feature
-        if self._instructions is not None:
-            instr_ind = episode[4][0]
-            instr = torch.as_tensor(self._instructions[instr_ind])[0]
-        else:
-            instr = torch.zeros((53, 512))
+        # if self._instructions is not None:
+        #     instr_ind = episode[4][0]
+        #     instr = torch.as_tensor(self._instructions[instr_ind])[0]
+        # else:
+        #     instr = torch.zeros((53, 512))
+        
 
         # Get gripper tensors for respective frame ids
-        gripper = episode[2][frame_ids]
+        # gripper = episode[2][frame_ids]
+        gripper = torch.cat([episode[4][i] for i in frame_ids])
         agent_pose = gripper[:self._nobs_step]
-        action = gripper[self._nobs_step:]
-        rgbs = rgbs[:self._nobs_step].flatten(1, 2)
-        pcds = pcds[:self._nobs_step].flatten(1, 2)
+        # action = gripper[self._nobs_step:]
+        # Get action tensors for respective frame ids
+        action = torch.cat([episode[2][i] for i in frame_ids])
+        # print(f"action shape: {action.shape}, agent_pose shape: {agent_pose.shape}")
+        action = action[self._nobs_step:]
+
+
+        if self._instructions is not None:
+            instr_ind = episode[6][0]
+            instr = torch.as_tensor(self._instructions[instr_ind])
+            # instr = instr.repeat(self._nobs_step, 1, 1)
+            instr = instr.squeeze(0)
+        else:
+            # instr = torch.zeros((self._nobs_step, 53, 512))
+            instr = torch.zeros((53, 512))
+
+        # instr: [n, 53, 512]
+        # instr = instr.mean(dim=1)  # 对 token 维度做 mean pooling，得到 [n, 512]
+
+
+        rgbs = rgbs[:self._nobs_step]
+        pcds = pcds[:self._nobs_step]
+
+        rgbs = einops.rearrange(rgbs, "n_frames n_cam c h w -> n_frames (n_cam h w) c")
+        pcds = einops.rearrange(pcds, "n_frames n_cam c h w -> n_frames (n_cam h w) c")
+        # print(f"rgbs shape: {rgbs.shape}, pcds shape: {pcds.shape}")
+
+        # 进一步下采样点云
+        total_points = rgbs.shape[1]
+        if total_points > 12800:  # 限制最大点数
+            indices = torch.randperm(total_points)[:12800]
+            rgbs = rgbs[:, indices]
+            pcds = pcds[:, indices]
 
         # Compute relative action
         if self._relative_action:

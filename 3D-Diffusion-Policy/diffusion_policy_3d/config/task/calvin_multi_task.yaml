@@ -1,6 +1,8 @@
-name: adroit_door
+# name: adroit_door
+name: calvin_multi_task
 
-task_name: door
+# task_name: door
+task_name: multi_task
 
 shape_meta: &shape_meta
   # acceptable types: rgb, low_dim
@@ -21,13 +23,14 @@ env_runner:
   n_obs_steps: ${n_obs_steps}
   n_action_steps: ${n_action_steps}
   fps: 10
-  task_name: door
+  # task_name: door
+  task_name: multi_task
   render_size: 84
   use_point_crop: ${policy.use_point_crop}
 
 dataset:
   _target_: diffusion_policy_3d.dataset.calvin_dataset.CalvinDataset
-  zarr_path: data/adroit_door_expert.zarr
+  zarr_path: data/adroit_door_expert.zarr # 这个参数可以删掉，因为CalvinDataset根本就没有用这个参数。dataset是在calvin_dataset.py中显示指定的。TODO: 把dataset_path的指定放到这个yaml中。
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}
   pad_after: ${eval:'${n_action_steps}-1'}

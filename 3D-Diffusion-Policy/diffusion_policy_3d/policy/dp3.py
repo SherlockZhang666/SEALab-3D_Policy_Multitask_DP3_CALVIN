@@ -8,7 +8,7 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from termcolor import cprint
 import copy
 import time
-import pytorch3d.ops as torch3d_ops
+# import pytorch3d.ops as torch3d_ops
 
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer
 from diffusion_policy_3d.policy.base_policy import BasePolicy
@@ -638,3 +638,94 @@ class InstructionDP3(DP3):
         # print(f"t6-t5: {t6-t5:.3f}")
         
         return loss, loss_dict
+    
+
+
+    # def compute_trajectory(self, obs_dict: Dict[str, torch.Tensor], trajectory_length: int = 16) -> Dict[str, torch.Tensor]:
+    #     """
+    #     Compute full trajectory for evaluation, similar to DiffuserActor's compute_trajectory method.
+        
+    #     Args:
+    #         obs_dict: observation dictionary containing point_cloud, agent_pos, instr
+    #         trajectory_length: length of trajectory to generate
+            
+    #     Returns:
+    #         Dictionary containing 'action' key with full trajectory
+    #     """
+    #     # normalize input
+    #     nobs = self.normalizer.normalize(obs_dict)
+    #     instr = nobs.pop('instr')
+        
+    #     if not self.use_pc_color:
+    #         nobs['point_cloud'] = nobs['point_cloud'][..., :3]
+        
+    #     value = next(iter(nobs.values()))
+    #     B, To = value.shape[:2]
+    #     T = trajectory_length  # Use specified trajectory length instead of self.horizon
+    #     Da = self.action_dim
+    #     Do = self.obs_feature_dim
+    #     To = self.n_obs_steps
+
+    #     # build input
+    #     device = self.device
+    #     dtype = self.dtype
+
+    #     # handle different ways of passing observation
+    #     local_cond = None
+    #     global_cond = None
+    #     if self.obs_as_global_cond:
+    #         # condition through global feature
+    #         this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
+    #         this_nobs['instr'] = instr
+    #         nobs_features = self.obs_encoder(this_nobs, self.n_obs_steps)
+    #         if "cross_attention" in self.condition_type:
+    #             # treat as a sequence
+    #             global_cond = nobs_features.reshape(B, self.n_obs_steps, -1)
+    #         else:
+    #             # reshape back to B, Do
+    #             global_cond = nobs_features.reshape(B, -1)
+    #         # empty data for action
+    #         cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)
+    #         cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
+    #     else:
+    #         # condition through impainting
+    #         this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
+    #         this_nobs['instr'] = instr
+    #         nobs_features = self.obs_encoder(this_nobs, self.n_obs_steps)
+    #         # reshape back to B, T, Do
+    #         nobs_features = nobs_features.reshape(B, To, -1)
+    #         cond_data = torch.zeros(size=(B, T, Da+Do), device=device, dtype=dtype)
+    #         cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
+    #         cond_data[:,:To,Da:] = nobs_features
+    #         cond_mask[:,:To,Da:] = True
+
+    #     # run sampling to generate full trajectory
+    #     nsample = self.conditional_sample(
+    #         cond_data, 
+    #         cond_mask,
+    #         local_cond=local_cond,
+    #         global_cond=global_cond,
+    #         **self.kwargs)
+        
+    #     # unnormalize prediction
+    #     naction_pred = nsample[...,:Da]
+    #     action_pred = self.normalizer['action'].unnormalize(naction_pred)
+
+    #     # Return full trajectory starting from current observation
+    #     start = To - 1
+    #     trajectory = action_pred[:, start:]  # Return all predicted actions from start
+        
+    #     # # If we want exactly trajectory_length steps, we can truncate or pad
+    #     # if trajectory.shape[1] > trajectory_length:
+    #     #     trajectory = trajectory[:, :trajectory_length]
+    #     # elif trajectory.shape[1] < trajectory_length:
+    #     #     # Pad with the last action if needed
+    #     #     last_action = trajectory[:, -1:].repeat(1, trajectory_length - trajectory.shape[1], 1)
+    #     #     trajectory = torch.cat([trajectory, last_action], dim=1)
+
+    #     result = {
+    #         'action': trajectory,
+    #         'action_pred': action_pred,
+    #     }
+        
+    #     return result

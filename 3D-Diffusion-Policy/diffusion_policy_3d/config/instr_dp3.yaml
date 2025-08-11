@@ -1,7 +1,9 @@
 defaults:
-  - task: adroit_hammer
+  # - task: adroit_hammer
+  - task: calvin_multi_task
 
-name: train_dp3
+# name: train_dp3
+name: calvin_multi_task_train_dp3
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
@@ -75,8 +77,9 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 5400
-  num_workers: 8
+  # batch_size: 5400
+  batch_size: 128 # Use a smaller now for debugging
+  num_workers: 1  # 原来是8
   shuffle: True
   pin_memory: True
   persistent_workers: False

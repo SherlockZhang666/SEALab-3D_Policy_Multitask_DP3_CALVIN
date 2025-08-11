@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Train Policy",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "train.py",
+            "args": [
+                "--config-name=instr_dp3.yaml",
+                "task=calvin_multi_task",
+                "hydra.run.dir=data/outputs/calvin_multi_task-instr_dp3-0728_seed0",
+                "training.debug=True",
+                "training.seed=0",
+                "training.device=cuda:0",
+                "exp_name=calvin_multi_task-instr_dp3-0728",
+                "logging.mode=offline",
+                "checkpoint.save_ckpt=True"
+            ],
+            "cwd": "${workspaceFolder}/3D-Diffusion-Policy",
+            "env": {
+                "HYDRA_FULL_ERROR": "1",
+                "PYTHONPATH": "/data/sea_disk0/zhangxx/3DDA_DP3",
+                "CONDA_DEFAULT_ENV": "dp3_debug",
+                "CUDA_VISIBLE_DEVICES": "2"
+            },
+        }
+    ]
+}

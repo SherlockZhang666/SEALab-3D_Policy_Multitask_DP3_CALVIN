@@ -1,3 +1,22 @@
+#
+做任何事之前先运行这个：
+```
+export PYTHONPATH=/data/sea_disk0/zhangxx/3DDA_DP3:$PYTHONPATH
+```
+
+# 在L40上train和evaluation的环境配置说明
+train: dp3_debug. 运行
+```
+bash scripts/train_policy.sh instr_dp3 calvin_multi_task 0727 0 0
+```
+现在ABC_D keypose数据集有问题。ABC_D closeloop io速度太慢。 在重新转ABC_D keypose.  
+现在debug数据集的train和evaluate都没问题。说明code没问题了。
+
+
+evaluate: 也是dp3_debug. 运行
+```
+bash scripts/eval_policy_calvin.sh instr_dp3 calvin_multi_task 0722 0 0
+```
 
 
 # <a href="https://3d-diffusion-policy.github.io">3D Diffusion Policy</a>
