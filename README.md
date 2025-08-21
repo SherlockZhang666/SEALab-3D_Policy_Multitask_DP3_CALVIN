@@ -1,3 +1,5 @@
+# First, change CUDA version in ~/.bashrc to 12.4
+
 #
 Python Path Configuration on Server:
 ```
